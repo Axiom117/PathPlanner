@@ -5,7 +5,7 @@ function config = robot_params()
     
     % Geometric Parameters
     config.cubeLength = 10;      % Cube dimension [mm]
-    config.tipDistance = 20;     % Pipette tip distance [mm]
+    config.tipDistance = 15;     % Pipette tip distance [mm]
     config.tiltAngle = -pi/4;    % Tilt angle around Y-axis [rad]
     
     % Joint Limits
