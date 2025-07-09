@@ -1,0 +1,7 @@
+# MATLAB缓存文件
+temp/
+*.slxc
+slprj/
+
+# MATLAB自动保存文件
+*.asv
