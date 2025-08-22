@@ -1,4 +1,4 @@
-function [pose, elapsedTime] = solverFK(qData, model)
+function [pose, elapsedTime] = solverFK(q_input, model)
 % solverFK  Forward‐kinematics via Simulink/Simscape Multibody
 %
 %   [pose, elapsedTime] = solverFK(q_input, model)
@@ -18,13 +18,12 @@ function [pose, elapsedTime] = solverFK(qData, model)
     end
 
     %–– Prepare single‐frame timeseries at t = 0
-    ts = timeseries(qData, 0);
-    ts.Name = 'qData';           
-    assignin('base', 'qData', ts);
+    ts = timeseries(q_input, 0);
+    ts.Name = 'q_input';           
+    assignin('base', 'q_input', ts);
 
     %–– Configure simulation for a single instant
-    set_param(model, 'StopTime', '0.01');
-    set_param(model, 'FastRestart', 'on');
+    set_param(model, 'StopTime', '0.01', 'FastRestart', 'on');
 
     %–– Run simulation
     tic;
