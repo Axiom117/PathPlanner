@@ -24,7 +24,8 @@ classdef ConfigManager < handle
         % Default configuration folder name
         CONFIG_FOLDER = 'configs'
         
-        % Standard configuration categories and their default function names
+        % A mapping table that matches standard configuration categories 
+        % and their default function names
         DEFAULT_CONFIG_FUNCTIONS = struct(...
             'robot', 'robot_params', ...
             'simulation', 'sim_params', ...
@@ -56,10 +57,11 @@ classdef ConfigManager < handle
                 obj.configPath = configPath;
             end
             
+            % Create an empty struct as cache
             obj.loadedConfigs = struct();
             obj.isInitialized = false;
             
-            % Add config path to MATLAB path if it exists
+            % Add config path to MATLAB path for feval() to find the function
             if exist(obj.configPath, 'dir')
                 addpath(obj.configPath);
                 obj.isInitialized = true;
@@ -83,19 +85,24 @@ classdef ConfigManager < handle
             % the returned structure for subsequent access.
             
             try
-                % Determine configuration function name
+                % Determine configuration function name from mapping
+                % table
                 if nargin < 3
                     if isfield(obj.DEFAULT_CONFIG_FUNCTIONS, configName)
+                        % (configName) represents the dynamic field name,
+                        % will be substituted into the actual field name
                         functionName = obj.DEFAULT_CONFIG_FUNCTIONS.(configName);
                     else
                         functionName = [configName '_params'];
                     end
                 end
                 
-                % Call configuration function
+                % Call configuration function and return the config struct
                 config = feval(functionName);
                 
-                % Cache the loaded configuration
+                % Cache the loaded configuration using dynamic field name,
+                % next time when requesting the config, it will be returned
+                % from the loaded struct
                 obj.loadedConfigs.(configName) = config;
                 
                 fprintf('Loaded configuration: %s (%d parameters)\n', ...
@@ -129,13 +136,8 @@ classdef ConfigManager < handle
         
         function config = getConfig(obj, configName)
             % Retrieve a loaded configuration structure
-            %
-            % Input:
-            %   configName - Name of the configuration category
-            %
-            % Returns:
-            %   config - Configuration structure, or loads it if not cached
             
+            % Firstly check the cached config
             if isfield(obj.loadedConfigs, configName)
                 config = obj.loadedConfigs.(configName);
             else
@@ -146,16 +148,6 @@ classdef ConfigManager < handle
         
         function param = getParam(obj, configName, paramName)
             % Retrieve a specific parameter value with optional default
-            %
-            % Inputs:
-            %   configName   - Configuration category name
-            %   paramName    - Parameter name within the configuration
-            %   defaultValue - (optional) Default value if parameter not found
-            %
-            % Returns:
-            %   param - Parameter value or default value
-            %
-            % Throws error if parameter not found and no default provided
             
             config = obj.getConfig(configName);
             
@@ -169,16 +161,13 @@ classdef ConfigManager < handle
         
         function setParam(obj, configName, paramName, value)
             % Set parameter value in memory (does not persist to file)
-            %
-            % Inputs:
-            %   configName - Configuration category name
-            %   paramName  - Parameter name
-            %   value      - New parameter value
             
+            % Create the config if not exist
             if ~isfield(obj.loadedConfigs, configName)
                 obj.loadedConfigs.(configName) = struct();
             end
             
+            % Update the param in cached config
             obj.loadedConfigs.(configName).(paramName) = value;
             
             fprintf('Updated parameter %s.%s\n', configName, paramName);
@@ -186,12 +175,6 @@ classdef ConfigManager < handle
         
         function success = reloadConfig(obj, configName)
             % Reload a specific configuration from its function
-            %
-            % Input:
-            %   configName - Configuration category name to reload
-            %
-            % Returns:
-            %   success - true if reload was successful
             
             fprintf('Reloading configuration: %s\n', configName);
             
@@ -242,18 +225,14 @@ classdef ConfigManager < handle
             end
         end
         
-        function exportToWorkspace(obj, configName)
+        function paramCount = exportToWorkspace(obj, configName)
             % Export configuration parameters to MATLAB base workspace
-            %
-            % Input:
-            %   configName - (optional) Specific configuration to export
-            %                If not provided, exports all loaded configurations
             %
             % This method is useful for making parameters available to Simulink
             % models and legacy scripts that expect workspace variables
             
             if nargin < 2
-                % Export all configurations
+                % Export all configurations recursively
                 configNames = fieldnames(obj.loadedConfigs);
                 totalParams = 0;
                 for i = 1:length(configNames)
@@ -262,6 +241,8 @@ classdef ConfigManager < handle
                 end
                 fprintf('Total exported: %d parameters from %d configurations\n', ...
                     totalParams, length(configNames));
+
+                paramCount = totalParams;
                 return;
             end
             
@@ -270,11 +251,14 @@ classdef ConfigManager < handle
             
             for i = 1:length(paramNames)
                 paramName = paramNames{i};
+                % Load param as variable into base workspace
                 assignin('base', paramName, config.(paramName));
             end
             
             fprintf('Exported %d parameters from %s configuration to workspace\n', ...
                 length(paramNames), configName);
+
+            paramCount = length(paramNames);
         end
         
         function clearCache(obj)
@@ -309,14 +293,6 @@ classdef ConfigManager < handle
         function param = getGlobalParameter(configName, paramName)
             % Static method for convenient global parameter access
             %
-            % Inputs:
-            %   configName   - Configuration category name
-            %   paramName    - Parameter name
-            %   defaultValue - (optional) Default value if parameter not found
-            %
-            % Returns:
-            %   param - Parameter value
-            %
             % This method provides a convenient one-line access to any configuration
             % parameter from anywhere in the codebase without creating manager instances
             
@@ -339,11 +315,6 @@ classdef ConfigManager < handle
         function config = getGlobalConfig(configName)
             % Static method to get entire configuration structure
             %
-            % Input:
-            %   configName - Configuration category name
-            %
-            % Returns:
-            %   config - Complete configuration structure
             
             manager = ConfigManager.getInstance();
             config = manager.getConfig(configName);
@@ -352,8 +323,6 @@ classdef ConfigManager < handle
         function reloadGlobalConfig(configName)
             % Static method to reload a global configuration
             %
-            % Input:
-            %   configName - Configuration category name to reload
             
             manager = ConfigManager.getInstance();
             manager.reloadConfig(configName);

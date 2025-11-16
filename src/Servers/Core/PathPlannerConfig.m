@@ -1,12 +1,16 @@
 classdef PathPlannerConfig < handle
-    % PathPlannerConfig - Configuration management module
-    % 
-    % This module handles loading and managing all configuration parameters
-    % for the PathPlanner system. It attempts to load from ConfigManager
-    % and falls back to default values if loading fails.
+% PathPlannerConfig - Configuration Management Module ("Single Source of Truth")
     %
-    % Properties include communication settings, manipulator IDs, and
-    % initial pose parameters.
+    % This module acts as the central "data warehouse" for the entire system,
+    % loading and managing all shared parameters.
+    %
+    % As a 'handle' class, it functions as a Single Source of Truth. It is
+    % injected into and shared by all other modules (Comm, Trajectory, Status),
+    % ensuring that any configuration change is instantly visible system-wide.
+    %
+    % It provides robust startup by attempting to load parameters from an external
+    % ConfigManager. If this fails, it safely falls back to hard-coded default
+    % values, guaranteeing the system always launches with a valid configuration.
     
     properties (Access = public)
         % Communication parameters
@@ -68,16 +72,21 @@ classdef PathPlannerConfig < handle
             % Falls back to default values if loading fails
             
             try
-                % Attempt to use ConfigManager
+                % Attempt to use ConfigManager in singleton mode
                 obj.configManager = ConfigManager.getInstance();
+                
+                % Load all configurations from config files to manager
+                % cache
                 obj.configManager.loadAllConfigs();
+
+                % Copy data from manager cache to public properties
                 obj.loadParametersFromConfig();
                 
                 notify(obj, 'ConfigurationLoaded', ...
                     PathPlannerEventData('Configuration loaded from ConfigManager'));
                     
             catch ME
-                % Fall back to default parameters
+                % Fall back to default parameters once any step fails
                 warning('PathPlannerConfig:LoadFailed', ...
                     'Configuration loading failed: %s. Using default parameters.', ME.message);
                 
@@ -118,12 +127,8 @@ classdef PathPlannerConfig < handle
         end
         
         function updateParameter(obj, category, paramName, value)
-            % Update a specific configuration parameter
-            %
-            % Inputs:
-            %   category  - Parameter category ('communication', 'manipulator', etc.)
-            %   paramName - Name of parameter to update
-            %   value     - New parameter value
+            % Update a specific configuration parameter in both public
+            % properties and config manager cache
             
             try
                 if isprop(obj, paramName)

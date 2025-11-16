@@ -51,7 +51,7 @@ function [qTime, qData, elapsedTime] = solverIK(trajectoryData, model)
         pose_ts = timeseries(poses, timeVector);
         pose_ts.Name = 'pose';
         
-        % Assign to base workspace for Simulink access
+        % Export to base workspace for Simulink access
         assignin('base', 'pose', pose_ts);
         
         % Calculate simulation parameters

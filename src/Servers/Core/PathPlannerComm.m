@@ -1,10 +1,23 @@
 classdef PathPlannerComm < handle
-    % PathPlannerComm - Communication management module
-    % 
-    % This module handles all TCP communication with the controller server,
-    % including connection management, command transmission, and asynchronous
-    % message monitoring. It provides both synchronous and asynchronous
-    % communication methods.
+%
+% This module handles all TCP communication with the controller server,
+% including connection management, command transmission, and asynchronous
+% message monitoring.
+%
+% It provides both synchronous and asynchronous communication methods:
+%
+%   Synchronous Communication: Used for "request-response" (blocking) cases.
+%     When MATLAB sends a command (e.g., 'HEARTBEAT'), it halts execution
+%     and waits for a specific response from the server before continuing.
+%
+%   Asynchronous Communication: Used for "non-blocking" cases.
+%     When MATLAB sends a command (e.g., 'START_MOTION'), it is not
+%     blocked (stuck) waiting for a response. Instead, it can continue
+%     executing other tasks.
+%     Meanwhile, the server can actively push messages at any time
+%     (e.g., 'REACHED_TARGET' or 'ERROR'), which are received by this
+%     module's background message listener.
+%
     
     properties (Access = private)
         tcpClient                       % TCP client object
@@ -39,12 +52,15 @@ classdef PathPlannerComm < handle
             end
 
             try
-                % Create TCP client with configured settings
+                % Create TCP client with configured settings and connect to
+                % host server
                 obj.tcpClient = tcpclient(obj.config.controllerHost, obj.config.controllerPort, ...
                     'Timeout', obj.config.responseTimeout, ...
                     'ConnectTimeout', obj.config.connectionTimeout);
                 
                 obj.isConnected = true;
+                
+                % Start the asynchronous listener with timer
                 obj.startMessageListener();
                 
                 % Notify successful connection
@@ -84,6 +100,8 @@ classdef PathPlannerComm < handle
             % Disconnect from controller server and cleanup resources
             
             try
+                % Must stop timer in case it attempts to access terminated
+                % tcpClient instance during next connection
                 obj.stopMessageListener();
                 
                 % Terminate TCP client
@@ -93,6 +111,7 @@ classdef PathPlannerComm < handle
                 obj.tcpClient = [];
                 obj.isConnected = false;
                 
+                % Notify disconnection
                 notify(obj, 'StatusUpdate', ...
                     PathPlannerEventData('Disconnected from controller server'));
                 notify(obj, 'ConnectionStateChanged');
@@ -120,9 +139,6 @@ classdef PathPlannerComm < handle
         function sendCommand(obj, command)
             % Send command asynchronously to controller
             % Response handling is done through message listener
-            %
-            % Inputs:
-            %   command - Command string to send
             
             if ~obj.isConnected
                 error('PathPlannerComm:NotConnected', ...
@@ -145,13 +161,6 @@ classdef PathPlannerComm < handle
         function response = sendCommandSync(obj, command, timeoutSeconds)
             % Send command and wait for synchronous response
             % Use for commands requiring immediate response (GET_STATUS, HEARTBEAT)
-            %
-            % Inputs:
-            %   command        - Command string to send
-            %   timeoutSeconds - (optional) Response timeout, default from config
-            %
-            % Returns:
-            %   response - Response string from server
             
             if nargin < 3
                 timeoutSeconds = obj.config.responseTimeout;
@@ -207,17 +216,12 @@ classdef PathPlannerComm < handle
     methods (Access = private)
         function response = waitForResponse(obj, timeoutSeconds)
             % Wait for response from server with timeout
-            %
-            % Inputs:
-            %   timeoutSeconds - Maximum wait time
-            %
-            % Returns:
-            %   response - Response string or error message
             
             startTime = tic;
             response = '';
             
             while toc(startTime) < timeoutSeconds
+                % Check is there any bytes from stream readable
                 if obj.tcpClient.NumBytesAvailable > 0
                     responseBytes = read(obj.tcpClient, obj.tcpClient.NumBytesAvailable, 'uint8');
                     response = strtrim(char(responseBytes));
@@ -317,6 +321,7 @@ classdef PathPlannerComm < handle
             % Monitor and process incoming asynchronous messages
             
             try
+                % Check if connected and if there is data in buffer 
                 if obj.isConnected && obj.tcpClient.NumBytesAvailable > 0
                     responseBytes = read(obj.tcpClient, obj.tcpClient.NumBytesAvailable, 'uint8');
                     response = strtrim(char(responseBytes));
@@ -325,10 +330,11 @@ classdef PathPlannerComm < handle
                     notify(obj, 'StatusUpdate', ...
                         PathPlannerEventData(['← ' response]));
                     
-                    % Handle multi-line responses
+                    % Handle multi-line responses and store as an array
                     responseLines = splitlines(string(response));
                     
                     for i = 1:length(responseLines)
+                        % parse each line
                         line = char(strtrim(responseLines(i)));
                         if ~isempty(line)
                             % Emit message received event for other modules

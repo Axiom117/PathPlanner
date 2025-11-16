@@ -96,7 +96,7 @@ function trajectoryData = generateTrajectory(currentPose, targetPose, T, dt)
         trajectoryPoses(:, i) = interp1([0, T], [currentPose(i), targetPose(i)], ...
                                        timeVector, 'linear');
     end
-        
+
     % Create trajectory structure for solverIK
     trajectoryData = struct();
     trajectoryData.poses = trajectoryPoses;  % [m, rad]
