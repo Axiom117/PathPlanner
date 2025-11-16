@@ -88,7 +88,7 @@ classdef WorkspaceManager < handle
             % Find config variables that still exist
             varsToClean = intersect(obj.configVars, currentVars);
             
-            % Remove preserved variables
+            % Remove preserved variables, ensure they will not be affected
             varsToClean = setdiff(varsToClean, obj.PRESERVE_VARS);
             
             % Clean up variables
@@ -143,10 +143,6 @@ classdef WorkspaceManager < handle
         
         function smartExportConfig(obj, configMgr, configName)
             % Smart export that tracks and manages workspace variables
-            %
-            % Inputs:
-            %   configMgr  - ConfigManager instance
-            %   configName - Configuration to export
             
             % Capture state before export
             preExportVars = evalin('base', 'who');

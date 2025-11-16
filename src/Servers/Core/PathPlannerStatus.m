@@ -1,9 +1,17 @@
 classdef PathPlannerStatus < handle
-    % PathPlannerStatus - Status management module
-    % 
-    % This module handles manipulator status queries and step movements.
-    % It provides synchronous status retrieval and asynchronous step
-    % movement commands with completion monitoring.
+% PathPlannerStatus - Status Monitor and Manual Control Module
+    %
+    % This module acts as the bridge between the digital world (the 'config' object) 
+    % and the physical controller hardware. It has two core responsibilities:
+    %
+    % 1. Monitoring (Synchronous): It queries the hardware for its real-time
+    %    position (e.g., getStatus). It then writes this "physical truth" 
+    %    back into the shared 'config' module, ensuring the system's 
+    %    "Single Source of Truth" is always synchronized with reality.
+    %
+    % 2. Operating (Asynchronous): It sends simple, non-blocking manual movement 
+    %    commands (e.g., stepMove, homePosition) to the hardware and listens 
+    %    for asynchronous completion notifications (e.g., 'STEP_COMPLETED').
     
     properties (Access = private)
         comm                            % Communication module reference
@@ -20,15 +28,13 @@ classdef PathPlannerStatus < handle
     methods (Access = public)
         function obj = PathPlannerStatus(comm, config)
             % Constructor - Initialize status module with dependencies
-            %
-            % Inputs:
-            %   comm   - PathPlannerComm instance
-            %   config - PathPlannerConfig instance
             
             obj.comm = comm;
             obj.config = config;
 
             % Listen to communication events for async message handling
+            % All async messages marked 'MessageReceived' will be catched
+            % and processed using handleMessage method
             addlistener(obj.comm, 'MessageReceived', @obj.handleMessage);
         end
         
@@ -36,12 +42,6 @@ classdef PathPlannerStatus < handle
             % Retrieve current status of manipulators
             % Sends synchronous GET_STATUS command and parses response
             %
-            % Inputs:
-            %   id1, id2 - (optional) Manipulator identifiers
-            %
-            % Returns:
-            %   status1, status2 - Structures containing position data [μm]
-            
             % Use default IDs from configuration if not provided
 
             id1 = obj.config.manipulatorID1;
@@ -59,29 +59,22 @@ classdef PathPlannerStatus < handle
             
             % Parse response format: STATUS, id1, X1, Y1, Z1, id2, X2, Y2, Z2
             tokens = strsplit(response, ',');
+
+            % Remove leading and trailing whitespace
             tokens = strtrim(tokens);
             
             if length(tokens) >= 9 && strcmp(tokens{1}, 'STATUS')
                 % Update positional parameters in config
+
+                % Update for manipulator 1
                 obj.config.XMC1 = str2double(tokens{3});
                 obj.config.YMC1 = str2double(tokens{4});
                 obj.config.ZMC1 = str2double(tokens{5});
 
+                % Update for manipulator 2
                 obj.config.XMC2 = str2double(tokens{7});
                 obj.config.YMC2 = str2double(tokens{8});
                 obj.config.ZMC2 = str2double(tokens{9});
-                % Build status structures with position data
-                % status1 = struct( ...
-                %     'id', tokens{2}, ...
-                %     'X', str2double(tokens{3}), ...
-                %     'Y', str2double(tokens{4}), ...
-                %     'Z', str2double(tokens{5}));
-                
-                % status2 = struct( ...
-                %     'id', tokens{6}, ...
-                %     'X', str2double(tokens{7}), ...
-                %     'Y', str2double(tokens{8}), ...
-                %     'Z', str2double(tokens{9}));
                 
                 notify(obj, 'StatusUpdate', ...
                     PathPlannerEventData('Status retrieved successfully'));
@@ -98,14 +91,13 @@ classdef PathPlannerStatus < handle
 
             modelFK = obj.config.modelFK;
 
-            % Get current manipulator status
+            % Get current manipulator status and reflect to config
             obj.getStatus();
 
             % Build joint input vector [x1 y1 z1 x2 y2 z2] and convert μm to m
-
             [pose, elapsedTime] = onCalcFK(obj, modelFK);
             
-            % Update the pose config in client
+            % Update the pose status in config
             obj.config.X0 = pose(1);
             obj.config.Y0 = pose(2);
             obj.config.Z0 = pose(3);
@@ -117,13 +109,6 @@ classdef PathPlannerStatus < handle
         function success = stepMove(obj, id1, id2, X, Y, Z)
             % Execute incremental manipulator movement
             % Sends asynchronous STEP command for specified displacement
-            %
-            % Inputs:
-            %   id1, id2 - Manipulator identifiers
-            %   X, Y, Z  - Incremental displacement [μm]
-            %
-            % Returns:
-            %   success - Boolean indicating command transmission success
             
             % Validate input parameters
             if nargin < 6
@@ -185,25 +170,9 @@ classdef PathPlannerStatus < handle
             end
         end
         
-        function [status1, status2] = refreshStatus(obj)
-            % Refresh status using configured default manipulator IDs
-            % Convenience method using default configuration
-            %
-            % Returns:
-            %   status1, status2 - Structures containing current position data
-            
-            [status1, status2] = obj.getStatus(obj.config.manipulatorID1, obj.config.manipulatorID2);
-        end
-        
         function success = homePosition(obj, id1, id2)
             % Move manipulators to home position (0,0,0)
             % Convenience method for returning to origin
-            %
-            % Inputs:
-            %   id1, id2 - (optional) Manipulator identifiers
-            %
-            % Returns:
-            %   success - Boolean indicating command success
             
             % Use default IDs if not provided
             if nargin < 2
@@ -211,18 +180,15 @@ classdef PathPlannerStatus < handle
                 id2 = obj.config.manipulatorID2;
             end
             
-            try
-                % Get current status to calculate displacement to origin
-                [status1, status2] = obj.getStatus(id1, id2);
-                
+            try 
                 % Calculate displacement to home position (0,0,0)
-                deltaX1 = -status1.X;
-                deltaY1 = -status1.Y;
-                deltaZ1 = -status1.Z;
+                deltaX1 = -obj.config.XMC1;
+                deltaY1 = -obj.config.YMC1;
+                deltaZ1 = -obj.config.ZMC1;
                 
-                deltaX2 = -status2.X;
-                deltaY2 = -status2.Y;
-                deltaZ2 = -status2.Z;
+                deltaX2 = -obj.config.XMC2;
+                deltaY2 = -obj.config.YMC2;
+                deltaZ2 = -obj.config.ZMC2;
                 
                 % Send step movement to home position
                 % Note: This assumes both manipulators can move independently

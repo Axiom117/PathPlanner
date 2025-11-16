@@ -2,14 +2,6 @@ function [pose_m, elapsedTime] = onCalcFK(obj, model)
     % onCalcFK - Forward kinematics calculation with configuration management
     % Calculates end-effector pose from current manipulator displacements
     %
-    % Inputs:
-    %   q_input - input manipulator displacements for computing the pose 
-    %   model  - FK model name for Simulink simulation
-    %
-    % Outputs:
-    %   pose_m        - End-effector pose [x y z phi theta psi] [m, rad]
-    %   elapsedTime - Computation time [s]
-    %
     % This function:
     %   1. Gets current manipulator status via client
     %   2. Exports required configurations for Simulink
@@ -18,6 +10,9 @@ function [pose_m, elapsedTime] = onCalcFK(obj, model)
 
     try
         %% 1. Setup configuration for Simulink
+
+        % Create workspaceManager instance and obtain the configManager
+        % instance
         workspaceManager = WorkspaceManager();
         configMgr = ConfigManager.getInstance();
         

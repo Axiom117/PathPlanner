@@ -1,9 +1,25 @@
 classdef PathPlannerTrajectory < handle
-    % PathPlannerTrajectory - Trajectory management module
-    % 
-    % This module handles trajectory planning, data transmission, and execution
-    % monitoring. It coordinates with the communication module for data transfer
-    % and provides event notifications for trajectory status updates.
+% PathPlannerTrajectory - The central "nervous system" for trajectory management
+    %
+    % This module acts as the bridge between the planning logic ("Brain") and the
+    % robot controller ("Muscles"). It orchestrates the entire motion lifecycle through
+    % three key responsibilities:
+    %
+    % 1. Planning (The Brain): 
+    %    - Invokes the Inverse Kinematics (IK) solver (`onCalcIK`) to generate
+    %      joint trajectories from the current pose to the target.
+    %
+    % 2. Transmission (The Messenger):
+    %    - Formats calculated trajectory data (converting units from meters to micrometers).
+    %    - Downsamples data if necessary for efficiency.
+    %    - Transmits the payload to the robot controller via the communication module.
+    %
+    % 3. Monitoring (The Watchdog):
+    %    - Issues execution commands (`START_PATH`) to the controller.
+    %    - Asynchronously listens for feedback to track status: start, completion, or failure.
+    %
+    % By coordinating the Configuration, Status, and Communication modules, this class
+    % drives the physical execution of paths and broadcasts real-time events to the UI.
     
     properties (Access = private)
         status                          % Status management module
@@ -65,7 +81,7 @@ classdef PathPlannerTrajectory < handle
                 
                 % Refresh the current pose information by calling the getPose() method
                 % from the referenced status module
-                [~,~] = obj.status.getPose();
+                obj.status.getPose();
 
                 % Execute external IK calculation function
                 % Pass config object to provide access to all parameters
@@ -87,7 +103,8 @@ classdef PathPlannerTrajectory < handle
                 obj.lastTrajectoryData.qData = downsampledData;
                 obj.lastTrajectoryData.elapsedTime = elapsedTime;
                 
-                % Update public properties
+                % Store raw path data to public properties (for plotting
+                % graph or other usages in GUI)
                 obj.trajectoryData = qData;
                 obj.trajectoryTime = qTime;
                 obj.trajectoryReady = true;
