@@ -74,7 +74,7 @@ classdef PathPlannerTrajectory < handle
             % Returns:
             %   success - Boolean indicating planning success
             
-            targetPoints = 100;
+            targetPoints = 300;
             try
                 notify(obj, 'StatusUpdate', ...
                     PathPlannerEventData('Computing trajectory using inverse kinematics...'));
