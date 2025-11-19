@@ -60,7 +60,9 @@ function [qTime, qData, elapsedTime] = solverIK(trajectoryData, model)
         %% 3. Configure and execute Simulink simulation
         % Set simulation parameters
         set_param(model, 'StopTime', num2str(T));
-        set_param(model, 'FixedStep', num2str(dt));
+        if ~strcmpi(get_param(model, 'FastRestart'), 'on')
+            set_param(model, 'FixedStep', num2str(dt));
+        end
         set_param(model, 'FastRestart', 'on');
         
         % Execute IK simulation
