@@ -17,24 +17,15 @@ simConfig = configMgr.getConfig('simulation');
         T = simConfig.simTime;
         dt = simConfig.timeStep;
 
-currentPose = [0, 0, 0, 0, -45, 0];
-targetPose = [0, 0, 0, 0, -45, 0];
+currentPose = [0, 0, 0, 10, -45, 0];
+targetPose = [0, 0, 0, 10, -45, 0];
 
-% Create time vector
-timeVector = (0:dt:T)';
-numPoints = length(timeVector);
-
-% Construct the time series of the pose
-trajectoryPoses = zeros(numPoints, 6);
-for i = 1:6
-    trajectoryPoses(:, i) = interp1([0, T], [currentPose(i), targetPose(i)], ...
-                                   timeVector, 'linear');
-end
+trajectoryPose = [0, 0, 0, 0, -45, 0];
 
 % Create trajectory structure for solverIK
 trajectoryData = struct();
-trajectoryData.poses = trajectoryPoses;  % [m, rad]
-trajectoryData.time = timeVector;
+trajectoryData.poses = trajectoryPose;  % [m, rad]
+trajectoryData.time = T;
 trajectoryData.dt = dt;
 
 model = 'model_3T2R_Pitch_Roll_IK';
