@@ -165,7 +165,7 @@ classdef PathPlannerClient < handle
         end
 
         %% Configuration Access Methods
-        function setTargetPose(obj, XTarget, YTarget, ZTarget, PhiTarget)
+        function setTargetPose(obj, XTarget, YTarget, ZTarget, PhiTarget, ThetaTarget)
             % Set target pose values in configuration with unit conversion
             % Inputs: XTarget, YTarget, ZTarget, PhiTarget - Target pose values
             
@@ -173,6 +173,7 @@ classdef PathPlannerClient < handle
             if nargin >= 3, obj.config.YTarget = YTarget * 1e-3; end
             if nargin >= 4, obj.config.ZTarget = ZTarget * 1e-3; end
             if nargin >= 5, obj.config.PhiTarget = PhiTarget; end
+            if nargin >= 6, obj.config.ThetaTarget = ThetaTarget; end
         end
         
         function config = getConfig(obj)

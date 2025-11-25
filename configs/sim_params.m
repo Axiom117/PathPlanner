@@ -9,8 +9,8 @@ function config = sim_params()
     config.solverType = 'ode45';    % Solver type
     
     % Model Names
-    config.modelFK = 'model_2R_RCM_FK';    % Forward kinematics model
-    config.modelIK = 'model_2R_RCM_IK';    % Inverse kinematics model
+    config.modelFK = 'model_3T2R_Pitch_Roll_FK';    % Forward kinematics model
+    config.modelIK = 'model_3T2R_Pitch_Roll_IK';    % Inverse kinematics model
     
     % Solver Tolerances
     config.relTol = 1e-6;           % Relative tolerance
