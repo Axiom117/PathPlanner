@@ -4,7 +4,8 @@ function config = comm_params()
     % Returns a structure containing all communication-related parameters
     
     % TCP/IP Settings
-    config.controllerHost = '10.8.251.124';   % Controller host IP
+    % config.controllerHost = '10.8.251.124';   % Controller host IP
+    config.controllerHost = '192.168.1.170'; % Controller host IP (550C)
     config.controllerPort = 5000;          % Controller port number
     config.connectionTimeout = 10;         % Connection timeout [s]
     config.responseTimeout = 1;            % Response timeout [s]

@@ -8,7 +8,7 @@ function config = sim_params()
     config.timeStep = 0.001;        % Time step [s]
     config.solverType = 'ode45';    % Solver type
     
-    % Model Names
+    % Default Model Names
     config.modelFK = 'model_3T2R_Pitch_Roll_FK';    % Forward kinematics model
     config.modelIK = 'model_3T2R_Pitch_Roll_IK';    % Inverse kinematics model
     

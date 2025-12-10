@@ -12,6 +12,6 @@ workspaceManager.smartExportConfig(configMgr, 'simulation');
 
 qDisplacement = [0, 0, 0, 0, 0, 0];
 
-model = 'model_2R_RCM_FK';
+model = 'model_3T1R_Roll_FK';
 
 [pose_m, elapsedTime] = solverFK(qDisplacement, model);
