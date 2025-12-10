@@ -6,7 +6,7 @@ clc;
 workspaceManager = WorkspaceManager();
 configMgr = ConfigManager.getInstance();
 
-configMgr.setParam('simulation', 'simTime', 0.001);
+configMgr.setParam('simulation', 'simTime', 1);
 
 % Export required configurations for Simulink FK model
 workspaceManager.smartExportConfig(configMgr, 'robot');
@@ -24,10 +24,10 @@ trajectoryPose = [0, 0, 0, 0, -45, 0];
 
 % Create trajectory structure for solverIK
 trajectoryData = struct();
-trajectoryData.poses = trajectoryPose;  % [m, rad]
+trajectoryData.poses = trajectoryPose;  % [mm, deg]
 trajectoryData.time = T;
 trajectoryData.dt = dt;
 
-model = 'model_3T2R_Pitch_Roll_IK';
+model = 'model_3T1R_Roll_IK';
 
 [qTime, qData, ikElapsedTime] = solverIK(trajectoryData, model);
