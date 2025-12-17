@@ -27,6 +27,9 @@ classdef PathPlannerTrajectory < handle
         trajectoryReady = false         % Trajectory readiness flag
         lastTrajectoryData              % Cache of last calculated trajectory
         isExecuting = false             % Path execution status flag
+
+        isPTPMode = false               % Flag for Point-to-Point mode (Translation only)
+        ptpDeltas = []                  % Cached increments for PTP move [dx1, dy1, dz1, dx2, dy2, dz2] (um)
     end
 
     properties (Access = public)
@@ -74,7 +77,6 @@ classdef PathPlannerTrajectory < handle
             % Returns:
             %   success - Boolean indicating planning success
             
-            targetPoints = 100;
             try
                 notify(obj, 'StatusUpdate', ...
                     PathPlannerEventData('Computing trajectory using inverse kinematics...'));
@@ -82,45 +84,103 @@ classdef PathPlannerTrajectory < handle
                 % Refresh the current pose information by calling the getPose() method
                 % from the referenced status module
                 obj.status.getPose();
+                
+                % Get current and target roll angle Phi
+                currentPhi = obj.config.Phi0;
+                targetPhi = obj.config.PhiTarget;
+                
+                % Get current and target Position with unit conversion
+                currentPos = [obj.config.X0, obj.config.Y0, obj.config.Z0];
+                targetPos = [obj.config.XTarget, obj.config.YTarget, obj.config.ZTarget].* 10^3;
+
+                % Calculate Deltas
+                deltaPhi = abs(targetPhi - currentPhi);
+                deltaDist = norm(targetPos - currentPos);
+                
+                % Detect PTP mode
+                if deltaPhi < 0.01
+                    obj.isPTPMode = true;
+                    notify(obj, 'StatusUpdate', ...
+                        PathPlannerEventData('Motion type: Translation only. Switching to PTP Mode (Single Step).'));
+                else
+                    obj.isPTPMode = false;
+                end
 
                 % Execute external IK calculation function
                 % Pass config object to provide access to all parameters
                 [qTime, qData, elapsedTime] = onCalcIK(obj);
-
-                originalPoints = size(qData, 1);
-                
-                if originalPoints > targetPoints
-                    [downsampledData, downsampledTime, ~] = obj.downsampleTrajectory(qData, qTime, targetPoints);
+               
+                % Branch Logic based on Mode
+                if obj.isPTPMode
+                    % --- PTP Mode Logic ---
+                    % Get Target Joint Positions (Last point of IK result) -> Convert to microns
+                    targetJointsUm = qData(end, :) * 1e6;
+                    
+                    % Get Current Joint Positions (From Config) -> Microns
+                    % [XMC1, YMC1, ZMC1, XMC2, YMC2, ZMC2]
+                    currentJointsUm = [obj.config.XMC1, obj.config.YMC1, obj.config.ZMC1, ...
+                                       obj.config.XMC2, obj.config.YMC2, obj.config.ZMC2];
+                                   
+                    % Calculate Incremental Steps (Delta)
+                    obj.ptpDeltas = round(targetJointsUm - currentJointsUm);
+                    
+                    % For PTP, we don't need trajectory data for transmission, 
+                    % but we keep qData for plotting/reference.
+                    obj.lastTrajectoryData = []; 
+                    
                 else
-                    downsampledData = qData;
+                    % --- Trajectory Mode Logic (Original) ---
+                    resPhi = 1; 
+                    resDist = 0.1;
+                    
+                    pointsPhi = ceil(deltaPhi / resPhi);
+                    pointsDist = ceil(deltaDist / resDist);
+                    targetPoints = max([pointsPhi, pointsDist, 10]); % Min 10 points
+                    
+                    notify(obj, 'StatusUpdate', ...
+                        PathPlannerEventData(sprintf('Dynamic sampling: Points=%d', targetPoints)));
+                    
+                    originalPoints = size(qData, 1);
+                    if originalPoints > targetPoints
+                        [downsampledData, downsampledTime, ~] = obj.downsampleTrajectory(qData, qTime, targetPoints);
+                    else
+                        downsampledData = qData;
+                        downsampledTime = qTime;
+                    end
+                    
+                    % Cache trajectory data
+                    obj.lastTrajectoryData = struct();
+                    obj.lastTrajectoryData.id1 = obj.config.manipulatorID1;
+                    obj.lastTrajectoryData.id2 = obj.config.manipulatorID2;
+                    obj.lastTrajectoryData.qTime = downsampledTime;
+                    obj.lastTrajectoryData.elapsedTime = elapsedTime;
+                    
+                    % Unit conversion & Rounding
+                    obj.lastTrajectoryData.qData = round(downsampledData * 1e6);
                 end
-
-                % Cache trajectory data for future operations
-                obj.lastTrajectoryData = struct();
-                obj.lastTrajectoryData.id1 = obj.config.manipulatorID1;
-                obj.lastTrajectoryData.id2 = obj.config.manipulatorID2;
-                obj.lastTrajectoryData.qTime = downsampledTime;
-                obj.lastTrajectoryData.qData = downsampledData;
-                obj.lastTrajectoryData.elapsedTime = elapsedTime;
                 
-                % Store raw path data to public properties (for plotting
-                % graph or other usages in GUI)
+                % Common Finalization
                 obj.trajectoryData = qData;
                 obj.trajectoryTime = qTime;
                 obj.trajectoryReady = true;
                 success = true;
                 
-                % Notify trajectory completion with data
-                eventData = PathPlannerEventData(...
-                    sprintf('Trajectory computed successfully in %.3f seconds', elapsedTime), ...
-                    true, obj.lastTrajectoryData);
-                notify(obj, 'TrajectoryReady', eventData);
+                if obj.isPTPMode
+                    modeStr = "PTP";
+                else
+                    modeStr = "Trajectory";
+                end
+                
+                msg = sprintf('Planning successful (Mode: %s)', modeStr);
+                
+                notify(obj, 'TrajectoryReady', ...
+                    PathPlannerEventData(msg, true, obj.lastTrajectoryData));
                 
             catch ME
                 obj.trajectoryReady = false;
                 success = false;
                 notify(obj, 'StatusUpdate', ...
-                    PathPlannerEventData(['Trajectory planning failed: ' ME.message], false));
+                    PathPlannerEventData(['Planning failed: ' ME.message], false));
             end
         end
         
@@ -134,9 +194,19 @@ classdef PathPlannerTrajectory < handle
             % Returns:
             %   success - Boolean indicating transmission success
             
-            % Use default IDs
-            id1 = obj.config.manipulatorID1;
-            id2 = obj.config.manipulatorID2;
+            % Prepare IDs and path data
+
+            if obj.isPTPMode
+                notify(obj, 'StatusUpdate', ...
+                    PathPlannerEventData('PTP Mode: Skipping path transmission. Ready to execute step.'))
+                success = true;
+                notify(obj, 'PathDataReceived', ...
+                    PathPlannerEventData('PTP Ready'));
+                return;
+            end
+
+            % Standard Send Logic
+            ids = {obj.config.manipulatorID1, obj.config.manipulatorID2};
 
             try
                 % Validate prerequisites
@@ -148,30 +218,62 @@ classdef PathPlannerTrajectory < handle
                     error('No trajectory data available for transmission');
                 end
                 
-                % convert from m to um for the controller input
-                qData = obj.lastTrajectoryData.qData * 1e6;
-
-                % Prepare PATH_DATA command header
-                pathDataStr = sprintf('PATH_DATA, %s, %s', id1, id2);
+                qData = obj.lastTrajectoryData.qData;
                 
                 % Validate trajectory data structure
                 if size(qData, 2) < 6
                     error('Invalid trajectory data: expected 6 columns, found %d', size(qData, 2));
                 end
                 
-                % Serialize trajectory data points
-                for i = 1:size(qData, 1)
-                    pathDataStr = sprintf('%s, %.2f, %.2f, %.2f, %.2f, %.2f, %.2f', ...
-                        pathDataStr, qData(i, 1:6));
-                end
-                
-                % Transmit to controller via communication module
-                obj.comm.sendCommand(pathDataStr);
-                success = true;
-                
+                % Send trajectory points separately
+                % Define the data index for each manipulator
+                colMap = {[1, 2, 3], [4, 5, 6]};
+
                 notify(obj, 'StatusUpdate', ...
-                    PathPlannerEventData('Trajectory data transmission initiated'));
+                    PathPlannerEventData('Starting sequential trajectory transmission...'));
                 
+                for k = 1:length(ids)
+                    currentID = ids{k};
+                    currentCols = colMap{k};
+
+                    % Extract the N x 3 data corresponding to current ID
+                    manipulatorData = qData(:, currentCols);
+
+                    % Construct PATH_DATA command string
+                    % Format: PATH_DATA, ID, X, Y, Z, X, Y, Z...
+                    pathDataStr = sprintf('PATH_DATA, %s', currentID);
+
+                    % Serialize trajectory data points
+                    for i = 1:size(manipulatorData, 1)
+                        % Attention: don't forget to add comma beforehead
+                        pathDataStr = sprintf('%s, %.0f, %.0f, %.0f', ...
+                            pathDataStr, manipulatorData(i, 1), ...
+                            manipulatorData(i, 2), ...
+                            manipulatorData(i, 3));
+                    end
+
+                    % Transmit data string synchronously via communication
+                    % module and wait for confirmation
+                    timeout = 3;
+                    response = obj.comm.sendCommandSync(pathDataStr, timeout);
+    
+                    % Validate response
+                    % Controller should reply: PATH_DATA_RECEIVED, <ID>
+                    expectedToken = 'PATH_DATA_RECEIVED';
+                    
+                    if contains(response, expectedToken)
+                        notify(obj, 'StatusUpdate', ...
+                            PathPlannerEventData(sprintf('Trajectory for %s sent and confirmed.', currentID)));
+                    else
+                        error('Failed to send path for %s. Server response: %s', currentID, response);
+                    end
+                end
+
+                % All iterations finalized and no error
+                success = true;
+                notify(obj, 'PathDataReceived', ...
+                    PathPlannerEventData('All trajectory data transmitted and confirmed.'));
+
             catch ME
                 success = false;
                 notify(obj, 'StatusUpdate', ...
@@ -219,7 +321,7 @@ classdef PathPlannerTrajectory < handle
             % Returns:
             %   success - Boolean indicating command transmission success
             
-            % Use default IDs
+            % Get manipulator IDs
             id1 = obj.config.manipulatorID1;
             id2 = obj.config.manipulatorID2;
             
@@ -235,13 +337,37 @@ classdef PathPlannerTrajectory < handle
                 
                 % Set execution flag and send command
                 obj.isExecuting = true;
-                command = sprintf('START_PATH, %s, %s', id1, id2);
-                obj.comm.sendCommand(command);
+
+                if obj.isPTPMode
+                    % PTP Mode: Batch Step Execution
+                    % ptpDeltas format: [dx1, dy1, dz1, dx2, dy2, dz2]
+                    d = obj.ptpDeltas;
+                    
+                    if isempty(d) || length(d) < 6
+                        error('Invalid PTP deltas');
+                    end
+
+                    notify(obj, 'StatusUpdate', ...
+                        PathPlannerEventData('Executing PTP Batch Step Move...'));
                 
-                success = true;
-                notify(obj, 'StatusUpdate', ...
-                    PathPlannerEventData('Path execution initiated'));
+                    % Send STEP command all at once
+                    success = obj.status.stepMoveBatch(id1, d(1:3), id2, d(4:6));
+
+                    if ~success
+                        obj.isExecuting = false;
+                        error('Failed to send batch step command');
+                    end
+
+                else
+                    % Trajectory Mode: Path Tracking
+                    command = sprintf('START_PATH_CP, %s, %s', id1, id2);
+                    obj.comm.sendCommand(command);
+                    success = true;
                 
+                    notify(obj, 'StatusUpdate', ...
+                        PathPlannerEventData('Path execution initiated'));
+                end
+
             catch ME
                 obj.isExecuting = false;
                 success = false;

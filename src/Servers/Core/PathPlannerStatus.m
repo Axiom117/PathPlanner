@@ -41,9 +41,8 @@ classdef PathPlannerStatus < handle
         function getStatus(obj)
             % Retrieve current status of manipulators
             % Sends synchronous GET_STATUS command and parses response
-            %
-            % Use default IDs from configuration if not provided
-
+            
+            % Get the selected manipulator IDs from the Config manager
             id1 = obj.config.manipulatorID1;
             id2 = obj.config.manipulatorID2;
             
@@ -63,26 +62,45 @@ classdef PathPlannerStatus < handle
             % Remove leading and trailing whitespace
             tokens = strtrim(tokens);
             
-            if length(tokens) >= 9 && strcmp(tokens{1}, 'STATUS')
-                % Update positional parameters in config
-
-                % Update for manipulator 1
-                obj.config.XMC1 = str2double(tokens{3});
-                obj.config.YMC1 = str2double(tokens{4});
-                obj.config.ZMC1 = str2double(tokens{5});
-
-                % Update for manipulator 2
-                obj.config.XMC2 = str2double(tokens{7});
-                obj.config.YMC2 = str2double(tokens{8});
-                obj.config.ZMC2 = str2double(tokens{9});
-                
-                notify(obj, 'StatusUpdate', ...
-                    PathPlannerEventData('Status retrieved successfully'));
-                    
-            else
+            if isempty(tokens) || ~strcmp(tokens{1}, 'STATUS')
                 error('PathPlannerStatus:InvalidResponse', ...
-                    'Invalid status response format. Expected 9 tokens, got %d', length(tokens));
+                    'Invalid status response header: %s', response);
             end
+            
+            % Dynamically parse status data trunks
+            numTokens = length(tokens);
+            i = 2;
+
+            % Update positional parameters in config
+            while i <= numTokens - 3
+                currentID = tokens{i};
+                valX = str2double(tokens{i+1});
+                valY = str2double(tokens{i+2});
+                valZ = str2double(tokens{i+3});
+
+                % Match ID with the corresponding properties in Config
+                if strcmp(currentID, id1)
+                    obj.config.XMC1 = valX;
+                    obj.config.YMC1 = valY;
+                    obj.config.ZMC1 = valZ;
+                
+                elseif strcmp(currentID, id2)
+                    obj.config.XMC2 = valX;
+                    obj.config.YMC2 = valY;
+                    obj.config.ZMC2 = valZ;
+
+                else
+                    msg = fprintf('Warning: Received status for unknown ID: %s\n', currentID);
+                    notify(obj, 'StatusUpdate', PathPlannerEventData(msg))
+                end
+                
+                % Move to the next trunk
+                i = i + 4;
+            end
+            
+            notify(obj, 'StatusUpdate', ...
+                    PathPlannerEventData('Status retrieved successfully'));
+            
         end
 
         function [pose, elapsedTime] = getPose(obj)
@@ -135,80 +153,37 @@ classdef PathPlannerStatus < handle
             end
         end
         
-        function success = stepMoveSingle(obj, id, X, Y, Z)
-            % Execute incremental movement for single manipulator
-            % Convenience method for single manipulator step movements
+        function success = stepMoveBatch(obj, id1, d1, id2, d2)
+            % Execute simultaneous incremental movement for multiple manipulators
             %
             % Inputs:
-            %   id      - Manipulator identifier
-            %   X, Y, Z - Incremental displacement [μm]
-            %
-            % Returns:
-            %   success - Boolean indicating command transmission success
+            %   id1, id2 - Manipulator identifiers
+            %   d1, d2   - Displacement vectors [x, y, z] in microns
             
-            % Validate input parameters
-            if nargin < 5
-                error('PathPlannerStatus:InsufficientArgs', ...
-                    'stepMoveSingle requires manipulator ID and X,Y,Z displacement values');
+            % Validate input dimensions
+            if length(d1) < 3 || length(d2) < 3
+                error('PathPlannerStatus:InvalidArgs', 'Displacement vectors must have 3 elements');
             end
             
-            % Format single manipulator step command
-            command = sprintf('START_STEP, %s, %.2f, %.2f, %.2f', id, X, Y, Z);
+            % Format the batch command (Protocol v1.1 updated)
+            % Format: START_STEP, id1, x1, y1, z1, id2, x2, y2, z2
+            command = sprintf('START_STEP, %s, %.0f, %.0f, %.0f, %s, %.0f, %.0f, %.0f', ...
+                id1, d1(1), d1(2), d1(3), ...
+                id2, d2(1), d2(2), d2(3));
             
             try
-                % Send asynchronous step command
+                % Send asynchronous command
                 obj.comm.sendCommand(command);
+
                 success = true;
                 
                 notify(obj, 'StatusUpdate', ...
-                    PathPlannerEventData(['Single step movement command sent for ' id]));
+                    PathPlannerEventData(sprintf('Batch step command sent for %s and %s', id1, id2)));
                 
             catch ME
                 success = false;
                 notify(obj, 'StatusUpdate', ...
-                    PathPlannerEventData(['Single StepMove failed: ' ME.message], false));
-            end
-        end
-        
-        function success = homePosition(obj, id1, id2)
-            % Move manipulators to home position (0,0,0)
-            % Convenience method for returning to origin
-            
-            % Use default IDs if not provided
-            if nargin < 2
-                id1 = obj.config.manipulatorID1;
-                id2 = obj.config.manipulatorID2;
-            end
-            
-            try 
-                % Calculate displacement to home position (0,0,0)
-                deltaX1 = -obj.config.XMC1;
-                deltaY1 = -obj.config.YMC1;
-                deltaZ1 = -obj.config.ZMC1;
-                
-                deltaX2 = -obj.config.XMC2;
-                deltaY2 = -obj.config.YMC2;
-                deltaZ2 = -obj.config.ZMC2;
-                
-                % Send step movement to home position
-                % Note: This assumes both manipulators can move independently
-                success1 = obj.stepMoveSingle(id1, deltaX1, deltaY1, deltaZ1);
-                success2 = obj.stepMoveSingle(id2, deltaX2, deltaY2, deltaZ2);
-                
-                success = success1 && success2;
-                
-                if success
-                    notify(obj, 'StatusUpdate', ...
-                        PathPlannerEventData('Home position commands sent'));
-                else
-                    notify(obj, 'StatusUpdate', ...
-                        PathPlannerEventData('Home position command failed', false));
-                end
-                
-            catch ME
-                success = false;
-                notify(obj, 'StatusUpdate', ...
-                    PathPlannerEventData(['Home position failed: ' ME.message], false));
+                    PathPlannerEventData(['Batch step failed: ' ME.message], false));
             end
         end
     end

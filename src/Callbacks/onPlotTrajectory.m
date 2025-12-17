@@ -31,7 +31,7 @@ function onPlotTrajectory(obj, trajectoryData, varargin)
     addParameter(p, 'PlotColors', {'r','g','b'}, @iscell);
     addParameter(p, 'LineWidth', 1.5, @isnumeric);
     addParameter(p, 'MarkerSize', 5, @isnumeric);
-    addParameter(p, 'MarkerInterval', 10, @(x) isnumeric(x) && x >= 1);
+    addParameter(p, 'MarkerInterval', 1, @(x) isnumeric(x) && x >= 1);
     parse(p, varargin{:});
     
     plotColors = p.Results.PlotColors;
