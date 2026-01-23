@@ -1,4 +1,4 @@
-classdef PathPlannerTrajectory < handle
+classdef PathPlannerAsyncTask < handle
 % PathPlannerTrajectory - The central "nervous system" for trajectory management
     %
     % This module acts as the bridge between the planning logic ("Brain") and the
@@ -22,7 +22,7 @@ classdef PathPlannerTrajectory < handle
     % drives the physical execution of paths and broadcasts real-time events to the UI.
     
     properties (Access = private)
-        status                          % Status management module
+        syncOps                         % Reference to synchronous operations module
         comm                            % Communication module reference
         trajectoryReady = false         % Trajectory readiness flag
         lastTrajectoryData              % Cache of last calculated trajectory
@@ -33,7 +33,7 @@ classdef PathPlannerTrajectory < handle
     end
 
     properties (Access = public)
-        config                          % Configuration module reference
+        param                          % Parameter module reference
     end
     
     properties (Access = public)
@@ -51,16 +51,17 @@ classdef PathPlannerTrajectory < handle
     end
     
     methods (Access = public)
-        function obj = PathPlannerTrajectory(comm, config, status)
+        function obj = PathPlannerAsyncTask(comm, param, syncOps)
             % Constructor - Initialize trajectory module with dependencies
             %
             % Inputs:
             %   comm   - PathPlannerComm instance
-            %   config - PathPlannerConfig instance
-            
+            %   param  - PathPlannerParam instance
+            %   syncOps - PathPlannerSyncOps instance
+
             obj.comm = comm;
-            obj.config = config;
-            obj.status = status;
+            obj.param = param;
+            obj.syncOps = syncOps;
             
             % Listen to communication events for async message handling
             addlistener(obj.comm, 'MessageReceived', @obj.handleMessage);
@@ -82,82 +83,58 @@ classdef PathPlannerTrajectory < handle
                     PathPlannerEventData('Computing trajectory using inverse kinematics...'));
                 
                 % Refresh the current pose information by calling the getPose() method
-                % from the referenced status module
-                obj.status.getPose();
+                % from the referenced synchronous operations module
+                obj.syncOps.getPose();
                 
                 % Get current and target roll angle Phi
-                currentPhi = obj.config.Phi0;
-                targetPhi = obj.config.PhiTarget;
+                currentPhi = obj.param.Phi0;
+                targetPhi = obj.param.PhiTarget;
                 
-                % Get current and target Position with unit conversion
-                currentPos = [obj.config.X0, obj.config.Y0, obj.config.Z0];
-                targetPos = [obj.config.XTarget, obj.config.YTarget, obj.config.ZTarget].* 10^3;
+                % Get current and target positions
+                currentPos = [obj.param.X0, obj.param.Y0, obj.param.Z0];
 
+                targetPos = [obj.param.XTarget, obj.param.YTarget, obj.param.ZTarget];
+
+                targetPos = targetPos * 1e-3;   % mm to um
+                
                 % Calculate Deltas
                 deltaPhi = abs(targetPhi - currentPhi);
                 deltaDist = norm(targetPos - currentPos);
-                
-                % Detect PTP mode
-                if deltaPhi < 0.01
-                    obj.isPTPMode = true;
-                    notify(obj, 'StatusUpdate', ...
-                        PathPlannerEventData('Motion type: Translation only. Switching to PTP Mode (Single Step).'));
-                else
-                    obj.isPTPMode = false;
-                end
+
+                obj.isPTPMode = false;
 
                 % Execute external IK calculation function
                 % Pass config object to provide access to all parameters
                 [qTime, qData, elapsedTime] = onCalcIK(obj);
                
-                % Branch Logic based on Mode
-                if obj.isPTPMode
-                    % --- PTP Mode Logic ---
-                    % Get Target Joint Positions (Last point of IK result) -> Convert to microns
-                    targetJointsUm = qData(end, :) * 1e6;
-                    
-                    % Get Current Joint Positions (From Config) -> Microns
-                    % [XMC1, YMC1, ZMC1, XMC2, YMC2, ZMC2]
-                    currentJointsUm = [obj.config.XMC1, obj.config.YMC1, obj.config.ZMC1, ...
-                                       obj.config.XMC2, obj.config.YMC2, obj.config.ZMC2];
-                                   
-                    % Calculate Incremental Steps (Delta)
-                    obj.ptpDeltas = round(targetJointsUm - currentJointsUm);
-                    
-                    % For PTP, we don't need trajectory data for transmission, 
-                    % but we keep qData for plotting/reference.
-                    obj.lastTrajectoryData = []; 
-                    
+                % --- Trajectory Mode Logic (Original) ---
+                resPhi = 1; 
+                resDist = 0.1;
+                
+                pointsPhi = ceil(deltaPhi / resPhi);
+                pointsDist = ceil(deltaDist / resDist);
+                targetPoints = max([pointsPhi, pointsDist, 10]); % Min 10 points
+                
+                notify(obj, 'StatusUpdate', ...
+                    PathPlannerEventData(sprintf('Dynamic sampling: Points=%d', targetPoints)));
+                
+                originalPoints = size(qData, 1);
+                if originalPoints > targetPoints
+                    [downsampledData, downsampledTime, ~] = obj.downsampleTrajectory(qData, qTime, targetPoints);
                 else
-                    % --- Trajectory Mode Logic (Original) ---
-                    resPhi = 1; 
-                    resDist = 0.1;
-                    
-                    pointsPhi = ceil(deltaPhi / resPhi);
-                    pointsDist = ceil(deltaDist / resDist);
-                    targetPoints = max([pointsPhi, pointsDist, 10]); % Min 10 points
-                    
-                    notify(obj, 'StatusUpdate', ...
-                        PathPlannerEventData(sprintf('Dynamic sampling: Points=%d', targetPoints)));
-                    
-                    originalPoints = size(qData, 1);
-                    if originalPoints > targetPoints
-                        [downsampledData, downsampledTime, ~] = obj.downsampleTrajectory(qData, qTime, targetPoints);
-                    else
-                        downsampledData = qData;
-                        downsampledTime = qTime;
-                    end
-                    
-                    % Cache trajectory data
-                    obj.lastTrajectoryData = struct();
-                    obj.lastTrajectoryData.id1 = obj.config.manipulatorID1;
-                    obj.lastTrajectoryData.id2 = obj.config.manipulatorID2;
-                    obj.lastTrajectoryData.qTime = downsampledTime;
-                    obj.lastTrajectoryData.elapsedTime = elapsedTime;
-                    
-                    % Unit conversion & Rounding
-                    obj.lastTrajectoryData.qData = round(downsampledData * 1e6);
+                    downsampledData = qData;
+                    downsampledTime = qTime;
                 end
+                
+                % Cache trajectory data
+                obj.lastTrajectoryData = struct();
+                obj.lastTrajectoryData.id1 = obj.param.manipulatorID1;
+                obj.lastTrajectoryData.id2 = obj.param.manipulatorID2;
+                obj.lastTrajectoryData.qTime = downsampledTime;
+                obj.lastTrajectoryData.elapsedTime = elapsedTime;
+                
+                % Unit conversion & Rounding
+                obj.lastTrajectoryData.qData = round(downsampledData * 1e6);
                 
                 % Common Finalization
                 obj.trajectoryData = qData;
@@ -206,7 +183,7 @@ classdef PathPlannerTrajectory < handle
             end
 
             % Standard Send Logic
-            ids = {obj.config.manipulatorID1, obj.config.manipulatorID2};
+            ids = {obj.param.manipulatorID1, obj.param.manipulatorID2};
 
             try
                 % Validate prerequisites
@@ -311,7 +288,7 @@ classdef PathPlannerTrajectory < handle
             downsampledTime = qTime(selectedIndices);
         end
 
-        function success = executePath(obj)
+        function success = startPath(obj)
             % Initiate asynchronous trajectory execution on controller
             % Execution status monitored via async message handling
             %
@@ -322,8 +299,11 @@ classdef PathPlannerTrajectory < handle
             %   success - Boolean indicating command transmission success
             
             % Get manipulator IDs
-            id1 = obj.config.manipulatorID1;
-            id2 = obj.config.manipulatorID2;
+            id1 = obj.param.manipulatorID1;
+            id2 = obj.param.manipulatorID2;
+
+            % Get path interval value
+            interval = obj.param.interval;
             
             try
                 % Validate prerequisites
@@ -351,7 +331,7 @@ classdef PathPlannerTrajectory < handle
                         PathPlannerEventData('Executing PTP Batch Step Move...'));
                 
                     % Send STEP command all at once
-                    success = obj.status.stepMoveBatch(id1, d(1:3), id2, d(4:6));
+                    success = obj.syncOps.stepMoveBatch(id1, d(1:3), id2, d(4:6));
 
                     if ~success
                         obj.isExecuting = false;
@@ -359,8 +339,8 @@ classdef PathPlannerTrajectory < handle
                     end
 
                 else
-                    % Trajectory Mode: Path Tracking
-                    command = sprintf('START_PATH_CP, %s, %s', id1, id2);
+                    % Assemble command string and send START_PATH_CP command
+                    command = sprintf('START_PATH_CP, %s, %s, %s', interval, id1, id2);
                     obj.comm.sendCommand(command);
                     success = true;
                 

@@ -14,24 +14,14 @@ classdef PathPlannerClient < handle
     % modified or replaced without impacting the UI.
 
     properties (Access = private)
-        config             % Configuration management module
-        comm               % Communication module
-        trajectory         % Trajectory management module
-        status             % Status management module
+        param             % Parameter management module
+        comm              % Communication module
+        syncOps           % Synchronous operations module
+        asyncTask         % Asynchronous task management module
     end
     
     properties (SetAccess = private)
         isConnected = false % Connection status (read-only external access)
-    end
-    
-    % Dependent properties - delegate to config module
-    properties (Dependent)
-        manipulatorID1, manipulatorID2          % Manipulators names
-        XMC1, YMC1, ZMC1, XMC2, YMC2, ZMC2  % Manipulator positions [mm]
-        X0, Y0, Z0                          % End-effector position [mm]
-        Phi0, Theta0, Psi0                  % End-effector orientation [degrees]
-        XTarget, YTarget, ZTarget           % Target position [mm]
-        PhiTarget, ThetaTarget, PsiTarget   % Target orientation [degrees]
     end
     
     % Events - maintain original event interface
@@ -87,8 +77,8 @@ classdef PathPlannerClient < handle
             % Inputs: id1, id2 (optional) - Manipulator identifiers
             % Returns: status1, status2 - Structures with position data [μm]
             
-            % Delegate getStatus method to status module
-            [status1, status2] = obj.status.getStatus(varargin{:});
+            % Delegate getStatus method to synchronous operations module
+            [status1, status2] = obj.syncOps.getStatus(varargin{:});
         end
         
         function [pose, elapsedTime] = GetPose(obj, varargin)
@@ -96,8 +86,8 @@ classdef PathPlannerClient < handle
             % to solve for the current pose from the returned positional
             % information
             
-            % Delegate getPose method to status module
-            [pose, elapsedTime] = obj.status.getPose(varargin{:});
+            % Delegate getPose method to synchronous operations module
+            [pose, elapsedTime] = obj.syncOps.getPose(varargin{:});
         end
 
         %% Trajectory Operations
@@ -106,9 +96,9 @@ classdef PathPlannerClient < handle
             % Inputs: id1, id2, model (optional) - Manipulator IDs and IK model
             % Returns: success - Boolean indicating planning success
             
-            % Delegate planPath to trajectory module, varargin allows this
+            % Delegate planPath to asynchronous task module, varargin allows this
             % method to take any number of the input parameters.
-            success = obj.trajectory.planPath(varargin{:});
+            success = obj.asyncTask.planPath(varargin{:});
         end
         
         function success = SendPath(obj, varargin)
@@ -116,16 +106,16 @@ classdef PathPlannerClient < handle
             % Inputs: id1, id2 (optional) - Manipulator identifiers
             % Returns: success - Boolean indicating transmission success
             
-            % Delegate sendPath to trajectory module
-            success = obj.trajectory.sendPath(varargin{:});
+            % Delegate sendPath to asynchronous task module
+            success = obj.asyncTask.sendPath(varargin{:});
         end
         
-        function success = ExecutePath(obj, varargin)
+        function success = StartPath(obj, varargin)
             % Initiate trajectory execution on controller
             % Inputs: id1, id2 (optional) - Manipulator identifiers
             % Returns: success - Boolean indicating command success
             
-            success = obj.trajectory.executePath(varargin{:});
+            success = obj.asyncTask.startPath(varargin{:});
         end
         
         %% Utility Methods
@@ -140,47 +130,36 @@ classdef PathPlannerClient < handle
             % Check if trajectory is ready for execution
             % Returns: ready - Boolean indicating trajectory readiness
             
-            ready = obj.trajectory.isReady();
+            ready = obj.asyncTask.isReady();
         end
         
         function data = getLastTrajectoryData(obj)
             % Get last calculated trajectory data
             % Returns: data - Structure containing trajectory information
             
-            data = obj.trajectory.getLastData();
+            data = obj.asyncTask.getLastData();
         end
         
         function executing = isPathExecuting(obj)
             % Check if path execution is currently in progress
             % Returns: executing - Boolean indicating execution status
             
-            executing = obj.trajectory.isExecuting();
+            executing = obj.asyncTask.isExecuting();
         end
         
-        function params = getConfigurationSummary(obj)
+        function params = getParameterSummary(obj)
             % Get summary of current configuration parameters
             % Returns: params - Structure with configuration summary
             
-            params = obj.config.getSummary();
+            params = obj.param.getSummary();
         end
 
         %% Configuration Access Methods
-        function setTargetPose(obj, XTarget, YTarget, ZTarget, PhiTarget, ThetaTarget)
-            % Set target pose values in configuration with unit conversion
-            % Inputs: XTarget, YTarget, ZTarget, PhiTarget - Target pose values
+        function paramObj = getParamObj(obj)
+            % Get direct access to parameter object (use with caution)
+            % Returns: param - Parameter module reference
             
-            if nargin >= 2, obj.config.XTarget = XTarget * 1e-3; end
-            if nargin >= 3, obj.config.YTarget = YTarget * 1e-3; end
-            if nargin >= 4, obj.config.ZTarget = ZTarget * 1e-3; end
-            if nargin >= 5, obj.config.PhiTarget = PhiTarget; end
-            if nargin >= 6, obj.config.ThetaTarget = ThetaTarget; end
-        end
-        
-        function config = getConfig(obj)
-            % Get direct access to configuration object (use with caution)
-            % Returns: config - Configuration module reference
-            
-            config = obj.config;
+            paramObj = obj.param;
         end
         
         function delete(obj)
@@ -190,14 +169,14 @@ classdef PathPlannerClient < handle
                     obj.disconnect();
                 end
                 % Clear all modules
-                if ~isempty(obj.trajectory)
-                    delete(obj.trajectory);
-                    obj.trajectory = [];
+                if ~isempty(obj.asyncTask)
+                    delete(obj.asyncTask);
+                    obj.asyncTask = [];
                 end
                 
-                if ~isempty(obj.status)
-                    delete(obj.status);
-                    obj.status = [];
+                if ~isempty(obj.syncOps)
+                    delete(obj.syncOps);
+                    obj.syncOps = [];
                 end
                 
                 if ~isempty(obj.comm)
@@ -205,58 +184,14 @@ classdef PathPlannerClient < handle
                     obj.comm = [];
                 end
                 
-                if ~isempty(obj.config)
-                    delete(obj.config);
-                    obj.config = [];
+                if ~isempty(obj.param)
+                    delete(obj.param);
+                    obj.param = [];
                 end
             catch ME
                 warning(ME.identifier, '%s', ME.message);
             end
         end
-    end
-
-    % Property get methods
-    methods        
-        function value = get.XMC1(obj), value = obj.config.XMC1; end
-
-        function value = get.YMC1(obj), value = obj.config.YMC1; end
-
-        function value = get.ZMC1(obj), value = obj.config.ZMC1; end
-
-        function value = get.XMC2(obj), value = obj.config.XMC2; end
-
-        function value = get.YMC2(obj), value = obj.config.YMC2; end
-
-        function value = get.ZMC2(obj), value = obj.config.ZMC3; end
-
-        function value = get.X0(obj), value = obj.config.X0; end
-        
-        function value = get.Y0(obj), value = obj.config.Y0; end
-        
-        function value = get.Z0(obj), value = obj.config.Z0; end
-        
-        function value = get.Phi0(obj), value = obj.config.Phi0; end
-        
-        function value = get.Theta0(obj), value = obj.config.Theta0; end
-        
-        function value = get.Psi0(obj), value = obj.config.Psi0; end
-        
-        function value = get.XTarget(obj), value = obj.config.XTarget; end
-        
-        function value = get.YTarget(obj), value = obj.config.YTarget; end
-        
-        function value = get.ZTarget(obj), value = obj.config.ZTarget; end
-        
-        function value = get.PhiTarget(obj), value = obj.config.PhiTarget; end
-
-        function value = get.ThetaTarget(obj), value = obj.config.ThetaTarget; end
-
-        function value = get.PsiTarget(obj), value = obj.config.PsiTarget; end
-
-        function value = get.manipulatorID1(obj), value = obj.config.manipulatorID1; end
-
-        function value = get.manipulatorID2(obj), value = obj.config.manipulatorID2; end
-
     end
 
     methods (Access = private)
@@ -265,16 +200,16 @@ classdef PathPlannerClient < handle
             % Initialize all functional modules in correct dependency order
             
             % Configuration module has no dependencies
-            obj.config = PathPlannerConfig();
+            obj.param = PathPlannerParam();
             
             % Communication module depends on configuration
-            obj.comm = PathPlannerComm(obj.config);
+            obj.comm = PathPlannerComm(obj.param);
             
             % Status modules depend on communication and config
-            obj.status = PathPlannerStatus(obj.comm, obj.config);
+            obj.syncOps = PathPlannerSyncOps(obj.comm, obj.param);
             
             % Trajectory module depends on comm, config, and status
-            obj.trajectory = PathPlannerTrajectory(obj.comm, obj.config, obj.status);
+            obj.asyncTask = PathPlannerAsyncTask(obj.comm, obj.param, obj.syncOps);
         end
         
         function setupEventForwarding(obj)
@@ -289,25 +224,25 @@ classdef PathPlannerClient < handle
                 @(src,evt) notify(obj, 'ConnectionStateChanged', evt));
             
             % Trajectory module events
-            addlistener(obj.trajectory, 'StatusUpdate', ...
+            addlistener(obj.asyncTask, 'StatusUpdate', ...
                 @(src,evt) notify(obj, 'StatusUpdate', evt));
-            addlistener(obj.trajectory, 'TrajectoryReady', ...
+            addlistener(obj.asyncTask, 'TrajectoryReady', ...
                 @(src,evt) notify(obj, 'TrajectoryReady', evt));
-            addlistener(obj.trajectory, 'TrajectoryExecuted', ...
+            addlistener(obj.asyncTask, 'TrajectoryExecuted', ...
                 @(src,evt) notify(obj, 'TrajectoryExecuted', evt));
-            addlistener(obj.trajectory, 'PathDataReceived', ...
+            addlistener(obj.asyncTask, 'PathDataReceived', ...
                 @(src,evt) notify(obj, 'PathDataReceived', evt));
-            addlistener(obj.trajectory, 'PathExecutionStarted', ...
+            addlistener(obj.asyncTask, 'PathExecutionStarted', ...
                 @(src,evt) notify(obj, 'PathExecutionStarted', evt));
-            addlistener(obj.trajectory, 'PathExecutionFailed', ...
+            addlistener(obj.asyncTask, 'PathExecutionFailed', ...
                 @(src,evt) notify(obj, 'PathExecutionFailed', evt));
             
             % Status module events
-            addlistener(obj.status, 'StatusUpdate', ...
+            addlistener(obj.syncOps, 'StatusUpdate', ...
                 @(src,evt) notify(obj, 'StatusUpdate', evt));
             
             % Configuration module events
-            addlistener(obj.config, 'ConfigurationLoaded', ...
+            addlistener(obj.param, 'ConfigurationLoaded', ...
                 @(src,evt) notify(obj, 'ConfigurationLoaded', evt));
         end
     end

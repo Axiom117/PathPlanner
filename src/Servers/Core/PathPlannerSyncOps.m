@@ -1,4 +1,4 @@
-classdef PathPlannerStatus < handle
+classdef PathPlannerSyncOps < handle
 % PathPlannerStatus - Status Monitor and Manual Control Module
     %
     % This module acts as the bridge between the digital world (the 'config' object) 
@@ -18,7 +18,7 @@ classdef PathPlannerStatus < handle
     end
 
     properties (Access = public)
-        config                          % Configuration module reference
+        param                          % Parameter module reference
     end
     
     events
@@ -26,11 +26,11 @@ classdef PathPlannerStatus < handle
     end
     
     methods (Access = public)
-        function obj = PathPlannerStatus(comm, config)
+        function obj = PathPlannerSyncOps(comm, param)
             % Constructor - Initialize status module with dependencies
             
             obj.comm = comm;
-            obj.config = config;
+            obj.param = param;
 
             % Listen to communication events for async message handling
             % All async messages marked 'MessageReceived' will be catched
@@ -42,9 +42,9 @@ classdef PathPlannerStatus < handle
             % Retrieve current status of manipulators
             % Sends synchronous GET_STATUS command and parses response
             
-            % Get the selected manipulator IDs from the Config manager
-            id1 = obj.config.manipulatorID1;
-            id2 = obj.config.manipulatorID2;
+            % Get the selected manipulator IDs from the Parameter manager
+            id1 = obj.param.manipulatorID1;
+            id2 = obj.param.manipulatorID2;
             
             % Send synchronous status request
             command = sprintf('GET_STATUS, %s, %s', id1, id2);
@@ -78,19 +78,19 @@ classdef PathPlannerStatus < handle
                 valY = str2double(tokens{i+2});
                 valZ = str2double(tokens{i+3});
 
-                % Match ID with the corresponding properties in Config
+                % Match ID with the corresponding properties in Parameter
                 if strcmp(currentID, id1)
-                    obj.config.XMC1 = valX;
-                    obj.config.YMC1 = valY;
-                    obj.config.ZMC1 = valZ;
+                    obj.param.XMC1 = valX;
+                    obj.param.YMC1 = valY;
+                    obj.param.ZMC1 = valZ;
                 
                 elseif strcmp(currentID, id2)
-                    obj.config.XMC2 = valX;
-                    obj.config.YMC2 = valY;
-                    obj.config.ZMC2 = valZ;
+                    obj.param.XMC2 = valX;
+                    obj.param.YMC2 = valY;
+                    obj.param.ZMC2 = valZ;
 
                 else
-                    msg = fprintf('Warning: Received status for unknown ID: %s\n', currentID);
+                    msg = sprintf('Warning: Received status for unknown ID: %s\n', currentID);
                     notify(obj, 'StatusUpdate', PathPlannerEventData(msg))
                 end
                 
@@ -107,21 +107,24 @@ classdef PathPlannerStatus < handle
             % Use forward kinematics model to compute the resulting pose
             % given the input of manipulator displacements
 
-            modelFK = obj.config.modelFK;
+            modelFK = obj.param.modelFK;
 
-            % Get current manipulator status and reflect to config
+            % Get current manipulator status and reflect to param
             obj.getStatus();
 
             % Build joint input vector [x1 y1 z1 x2 y2 z2] and convert μm to m
             [pose, elapsedTime] = onCalcFK(obj, modelFK);
             
-            % Update the pose status in config
-            obj.config.X0 = pose(1);
-            obj.config.Y0 = pose(2);
-            obj.config.Z0 = pose(3);
-            obj.config.Phi0 = pose(4);
-            obj.config.Theta0 = pose(5);
-            obj.config.Psi0 = pose(6);
+            % Round pose elements to 6 decimal places (microns resolution)
+            pose = round(pose, 6);
+
+            % Update the pose status in param module
+            obj.param.X0 = pose(1);
+            obj.param.Y0 = pose(2);
+            obj.param.Z0 = pose(3);
+            obj.param.Phi0 = pose(4);
+            obj.param.Theta0 = pose(5);
+            obj.param.Psi0 = pose(6);
         end
         
         function success = stepMove(obj, id1, id2, X, Y, Z)

@@ -15,7 +15,7 @@ function config = sim_params()
     % Solver Tolerances
     config.relTol = 1e-6;           % Relative tolerance
     config.absTol = 1e-9;           % Absolute tolerance
-    config.maxStep = 0.01;          % Maximum step size
+    config.maxStep = 0.001;         % Maximum step size
     
     % Initial Pose
     config.X0 = 0;                  % Initial X position [mm]

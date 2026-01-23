@@ -22,8 +22,8 @@ function [pose_m, elapsedTime] = onCalcFK(obj, model)
         
         % Get current manipulator displacements from the configuration with
         % unit conversion (μm to m) 
-        qData = [obj.config.XMC1, obj.config.YMC1, obj.config.ZMC1, ...
-            obj.config.XMC2, obj.config.YMC2, obj.config.ZMC2] * 1e-6;
+        qData = [obj.param.XMC1, obj.param.YMC1, obj.param.ZMC1, ...
+            obj.param.XMC2, obj.param.YMC2, obj.param.ZMC2] * 1e-6;
 
         %% 2. Execute forward kinematics calculation
         [pose_m, elapsedTime] = solverFK(qData, model);

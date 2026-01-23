@@ -41,7 +41,9 @@ function onPlotTrajectory(obj, trajectoryData, varargin)
     
     % Extract trajectory data
     steps = 0:size(trajectoryData.qTime, 1)-1;
-    qData = trajectoryData.qData * 1e3;
+
+    % Unit conversion from micrometers to millimeters
+    qData = trajectoryData.qData * 1e-3;
     
     % Get axes from app object
     axes1 = obj.UIAxes1;

@@ -43,20 +43,20 @@ function [qTime, qData, elapsedTime] = onCalcIK(obj)
             PathPlannerEventData(sprintf('Starting trajectory planning using model: %s', model)));
         
         %% 2. Get current pose through forward kinematics
-        currentPose = [obj.config.X0, obj.config.Y0, obj.config.Z0, ...
-            obj.config.Phi0, obj.config.Theta0, obj.config.Psi0];
+        currentPose = [obj.param.X0, obj.param.Y0, obj.param.Z0, ...
+            obj.param.Phi0, obj.param.Theta0, obj.param.Psi0];
         
         %% 3. Prepare target pose from client properties
-        targetPose = [obj.config.XTarget, obj.config.YTarget, obj.config.ZTarget, ...
-            obj.config.PhiTarget, obj.config.ThetaTarget, obj.config.PsiTarget];
-        
+        targetPose = [obj.param.XTarget, obj.param.YTarget, obj.param.ZTarget, ...
+            obj.param.PhiTarget, obj.param.ThetaTarget, obj.param.PsiTarget];
+
         %% 4. Generate interpolated trajectory
         trajectoryData = generateTrajectory(currentPose, targetPose, T, dt);
         
         notify(obj, 'StatusUpdate', ...
             PathPlannerEventData(sprintf('Generated %d-point trajectory from current to target pose', ...
             length(trajectoryData.time))));
-
+        
         %% 5. Execute inverse kinematics calculation
         [qTime, qData, ikElapsedTime] = solverIK(trajectoryData, model);
         
@@ -84,16 +84,23 @@ function [qTime, qData, elapsedTime] = onCalcIK(obj)
 end
 
 function trajectoryData = generateTrajectory(currentPose, targetPose, T, dt)
-    % Generate interpolated trajectory from current to target pose
+    %% Generate interpolated trajectory from current to target pose
+
+    settlingTime = 0.01; % Additional time for settling
+    T_total = T + settlingTime;
 
     % Create time vector
-    timeVector = (0:dt:T)';
+    timeVector = (0:dt:T_total)';
     numPoints = length(timeVector);
     
     % Interpolate poses from current to target
     trajectoryPoses = zeros(numPoints, 6);
+
+    keyTimes = [0, T, T_total];
+
     for i = 1:6
-        trajectoryPoses(:, i) = interp1([0, T], [currentPose(i), targetPose(i)], ...
+        keyValues = [currentPose(i), targetPose(i), targetPose(i)];
+        trajectoryPoses(:, i) = interp1(keyTimes, keyValues, ...
                                        timeVector, 'linear');
     end
 
