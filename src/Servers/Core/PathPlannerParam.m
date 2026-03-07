@@ -28,7 +28,7 @@ classdef PathPlannerParam < handle
         XMC2 = 0; YMC2 = 0; ZMC2 = 0;
 
         % Path Planning and Execution Parameters
-        interval = 0.1                % Path tracking interval [s]
+        interval = 0.2                % Path tracking interval [s]
 
         %% 2. Core Configuration (Loaded from ConfigFile, rarely changed)
 

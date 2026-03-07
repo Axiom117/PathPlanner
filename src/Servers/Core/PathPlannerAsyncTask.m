@@ -113,7 +113,7 @@ classdef PathPlannerAsyncTask < handle
                 
                 pointsPhi = ceil(deltaPhi / resPhi);
                 pointsDist = ceil(deltaDist / resDist);
-                targetPoints = max([pointsPhi, pointsDist, 10]); % Min 10 points
+                targetPoints = max([pointsPhi, pointsDist, 2]); % Min 2 points
                 
                 notify(obj, 'StatusUpdate', ...
                     PathPlannerEventData(sprintf('Dynamic sampling: Points=%d', targetPoints)));
