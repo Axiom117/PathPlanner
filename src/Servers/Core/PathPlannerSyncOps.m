@@ -38,13 +38,16 @@ classdef PathPlannerSyncOps < handle
             addlistener(obj.comm, 'MessageReceived', @obj.handleMessage);
         end
         
-        function getStatus(obj)
+        function [status1, status2] = getStatus(obj)
             % Retrieve current status of manipulators
             % Sends synchronous GET_STATUS command and parses response
             
             % Get the selected manipulator IDs from the Parameter manager
             id1 = obj.param.manipulatorID1;
             id2 = obj.param.manipulatorID2;
+
+            status1 = struct('id', id1, 'X', NaN, 'Y', NaN, 'Z', NaN);
+            status2 = struct('id', id2, 'X', NaN, 'Y', NaN, 'Z', NaN);
             
             % Send synchronous status request
             command = sprintf('GET_STATUS, %s, %s', id1, id2);
@@ -83,11 +86,17 @@ classdef PathPlannerSyncOps < handle
                     obj.param.XMC1 = valX;
                     obj.param.YMC1 = valY;
                     obj.param.ZMC1 = valZ;
+                    status1.X = valX;
+                    status1.Y = valY;
+                    status1.Z = valZ;
                 
                 elseif strcmp(currentID, id2)
                     obj.param.XMC2 = valX;
                     obj.param.YMC2 = valY;
                     obj.param.ZMC2 = valZ;
+                    status2.X = valX;
+                    status2.Y = valY;
+                    status2.Z = valZ;
 
                 else
                     msg = sprintf('Warning: Received status for unknown ID: %s\n', currentID);

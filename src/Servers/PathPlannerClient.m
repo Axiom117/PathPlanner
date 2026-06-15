@@ -144,7 +144,7 @@ classdef PathPlannerClient < handle
             % Check if path execution is currently in progress
             % Returns: executing - Boolean indicating execution status
             
-            executing = obj.asyncTask.isExecuting();
+            executing = obj.asyncTask.isExecutingPath();
         end
         
         function params = getParameterSummary(obj)
