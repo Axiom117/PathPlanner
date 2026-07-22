@@ -8,10 +8,10 @@ configMgr = ConfigManager.getInstance();
 
 % Export required configurations for Simulink FK model
 workspaceManager.smartExportConfig(configMgr, 'robot');
-workspaceManager.smartExportConfig(configMgr, 'simulation');
+workspaceManager.smartExportConfig(configMgr, 'sim');
 
 qDisplacement = [0, 0, 0, 0, 0, 0];
 
-model = 'model_3T1R_Roll_FK';
+model = 'model_3T2R_sasa_FK';
 
 [pose_m, elapsedTime] = solverFK(qDisplacement, model);

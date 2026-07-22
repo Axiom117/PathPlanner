@@ -23,7 +23,7 @@ function [pose, elapsedTime] = solverFK(q_input, model)
     assignin('base', 'q_input', ts);
 
     %–– Configure simulation for a single instant
-    set_param(model, 'StopTime', '0.01', 'FastRestart', 'on');
+    set_param(model, 'StopTime', '0.001', 'FastRestart', 'on');
 
     %–– Run simulation
     tic;
